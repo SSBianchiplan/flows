@@ -15,6 +15,11 @@ flows.gplansis.com {
 			response_header_timeout 300s
 		}
 	}
+	# não anuncia o proxy (cabeçalho Via acrescentado pelo reverse_proxy)
+	header {
+		defer
+		-Via
+	}
 	log {
 		output file /var/log/caddy/flows.log
 	}

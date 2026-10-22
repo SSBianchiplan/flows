@@ -177,7 +177,7 @@ function setupAI(){if(!(S.ai&&has('ai.use'))){SAMPLE=null;return}
 /* ---------------- documento aberto: carga, gravação, conflitos ---------------- */
 function snap(){if(!doc)return'';const{cur,...rest}=doc;return JSON.stringify(rest)}
 const dirty=()=>!!S.docId&&!!doc&&snap()!==S.savedTxt;
-function normalize(d){d.res=d.res||{};d.inst=d.inst||[];d.audit=d.audit||[];d.work=d.work||[];d.mail=d.mail||{};d.cur=clamp(d.cur||0,0,d.pages.length-1);return d}
+function normalize(d){d=SAN.doc(d);d.res=d.res||{};d.inst=d.inst||[];d.audit=d.audit||[];d.work=d.work||[];d.mail=d.mail||{};d.cur=clamp(d.cur||0,0,d.pages.length-1);return d}
 function loadIntoEditor(r){S.docId=r.id;S.ver=r.ver;S.level=r.level;S.meta=r;S.conflict=false;S.retry=0;hideLayers();
   EX.who=S.me.name;try{localStorage.setItem('gplansis-flows-who',S.me.name)}catch(e){}
   if(!S.booted){S.booted=true;init(normalize(r.data))}else{doc=normalize(r.data);undoS=[];redoS=[];SEL.clear();boot()}
@@ -190,7 +190,7 @@ autosave=function(){if(!S.docId)return;clearTimeout(S.t);S.t=setTimeout(flush,80
 async function flush(){clearTimeout(S.t);if(!S.docId||S.conflict||!doc)return true;const txt=snap();if(txt===S.savedTxt){setSync();return true}
   if(S.saving){S.again=true;return false}
   S.saving=true;setSync('saving');const id=S.docId;
-  try{const r=await api('PUT','/api/docs/'+id,{base:S.ver,data:doc});if(id!==S.docId)return true;S.ver=r.ver;S.savedTxt=txt;S.retry=0;S.meta.updated_by=S.me;clearPending(id);setSync();return true}
+  try{const r=await api('PUT','/api/docs/'+id,{base:S.ver,data:doc});if(id!==S.docId)return true;S.ver=r.ver;S.savedTxt=adoptAudit(r,txt);S.retry=0;S.meta.updated_by=S.me;clearPending(id);setSync();return true}
   catch(e){if(id!==S.docId)return false;
     if(e.status===409)conflict(e.data);
     else if(e.status===403){setSync('denied');toast(e.message,4200);await reloadRemote()}
@@ -199,6 +199,12 @@ async function flush(){clearTimeout(S.t);if(!S.docId||S.conflict||!doc)return tr
     else{setSync('offline');storePending();S.retry=Math.min(S.retry+1,6);S.t=setTimeout(flush,1000*2**S.retry)}
     return false}
   finally{S.saving=false;if(S.again){S.again=false;autosave()}}}
+/* A trilha de auditoria do documento é gerada no servidor: ele recarimba os registros novos (sequência, horário, autor,
+   encadeamento) e devolve a trilha canônica. Registros feitos durante a gravação são reencadeados sobre ela. */
+function adoptAudit(r,txt){if(!r||!Array.isArray(r.audit)||!doc)return txt;const sent=JSON.parse(txt);const known=new Set((sent.audit||[]).map(e=>e.hash));
+  const extra=(doc.audit||[]).filter(e=>!known.has(e.hash));const A=SAN.doc({pages:[newPage()],audit:deep(r.audit)}).audit;sent.audit=deep(A);
+  for(const e of extra){const prev=A.length?A[A.length-1].hash:'0'.repeat(64);const n={seq:(A.length?A[A.length-1].seq:0)+1,at:e.at,ev:e.ev,data:e.data};const h=sha256(prev+JSON.stringify(n));n.prev=prev;n.hash=h;A.push(n)}
+  doc.audit=A;if(qs('#console').classList.contains('open'))try{renderConsole()}catch(e){}return JSON.stringify(sent)}
 function renderAll(){renderRibbon();renderStencil();renderPages();refreshProps();render();if(qs('#console').classList.contains('open'))renderConsole()}
 async function reloadRemote(by){if(!S.docId)return;let r;try{r=await api('GET','/api/docs/'+S.docId)}catch(e){return}
   const cur=doc?doc.cur:0;doc=normalize(r.data);doc.cur=clamp(cur,0,doc.pages.length-1);S.ver=r.ver;S.level=r.level;S.meta=r;S.conflict=false;
@@ -209,7 +215,7 @@ function conflict(info){S.conflict=true;setSync('conflict');storePending();info=
     <div class="gate">Escolha o destino das suas alterações. Nada é descartado sem a sua confirmação.</div>`,
    [{t:'Descartar as minhas e recarregar',fn:safe(async()=>{clearPending(S.docId);await reloadRemote()})},
     {t:'Salvar as minhas como cópia',cls:'pri',fn:safe(async()=>{const d=deep(doc);d.name=(d.name+' (minha versão)').slice(0,160);const r=await api('POST','/api/docs',{data:d,origin:'Cópia por conflito'});clearPending(S.docId);S.conflict=false;S.docId=null;go('#/d/'+r.id)})},
-    ...(canForce?[{t:'Sobrescrever',cls:'dng',fn:safe(async()=>{if(!confirm('Gravar a sua versão por cima da versão mais nova?'))return false;const txt=snap();const r=await api('PUT','/api/docs/'+S.docId,{base:S.ver,data:doc,force:true});S.ver=r.ver;S.savedTxt=txt;S.conflict=false;clearPending(S.docId);setSync();toast('Sua versão foi gravada')})}]:[])])}
+    ...(canForce?[{t:'Sobrescrever',cls:'dng',fn:safe(async()=>{if(!confirm('Gravar a sua versão por cima da versão mais nova?'))return false;const txt=snap();const r=await api('PUT','/api/docs/'+S.docId,{base:S.ver,data:doc,force:true});S.ver=r.ver;S.savedTxt=adoptAudit(r,txt);S.conflict=false;clearPending(S.docId);setSync();toast('Sua versão foi gravada')})}]:[])])}
 function startPoll(){stopPoll();S.poll=setInterval(poll,4000);poll()}
 function stopPoll(){clearInterval(S.poll);S.poll=null}
 let polling=false;
@@ -555,5 +561,5 @@ async function route(first){if(!S.me)return;const h=location.hash;let m;
 /* ---------------- partida ---------------- */
 (async function start(){try{const p=await fetch('/api/me',{credentials:'same-origin'});if(p.ok){await onMe(await p.json());return}
     if(p.status===401){showLogin();return}throw new Error('HTTP '+p.status)}
-  catch(e){authShell(`<h2>Servidor indisponível</h2><p class="sub">Não foi possível falar com o servidor do GPlanSiS|Flows (${esc(e.message)}).</p><button class="pl-btn pri" onclick="location.reload()">Tentar de novo</button>`)}})();
+  catch(e){authShell(`<h2>Servidor indisponível</h2><p class="sub">Não foi possível falar com o servidor do GPlanSiS|Flows (${esc(e.message)}).</p><button class="pl-btn pri" id="plRetry">Tentar de novo</button>`);const b=qs('#plRetry');if(b)b.addEventListener('click',()=>location.reload())}})();
 })();

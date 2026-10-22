@@ -13,6 +13,7 @@ import hmac
 import io
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -294,14 +295,12 @@ def pub_user(u: dict, full: bool = False) -> dict:
         o.update({"dept": u["dept"] or "", "active": bool(u["active"]), "must_change": bool(u["must_change"]),
                   "created": u["created"], "last_login": u["last_login"], "perms": eff_perms(u),
                   "custom": bool(u["perms"]) and u["role"] not in ("master", "admin"),
-                  "locked": (u["locked_until"] or 0) > now()})
+                  "locked": account_locked(u["email"])})
     return o
 
 
 def client_ip(req: Request) -> str:
-    xf = req.headers.get("x-forwarded-for")
-    if xf:
-        return xf.split(",")[0].strip()[:64]
+    # o uvicorn (--proxy-headers) já põe aqui o IP vindo do Caddy; o contêiner só escuta em 127.0.0.1
     return (req.client.host if req.client else "")[:64]
 
 
@@ -338,6 +337,8 @@ def current_user(req: Request, allow_must_change: bool = False) -> dict:
 
 # --------------------------------------------------------------------------- acesso a documentos
 LEVELS = {"none": 0, "view": 1, "edit": 2, "owner": 3}
+# quem pode acrescentar registros à trilha do documento sem editar o modelo (simulação, exportação, IA, execução)
+AUDIT_WRITERS = {"bpm.simulate", "bpm.execute", "bpm.tasks", "export", "ai.use", "docs.publish"}
 
 
 def doc_level(c: sqlite3.Connection, u: dict, d: sqlite3.Row) -> str:
@@ -368,14 +369,22 @@ def load_doc(c: sqlite3.Connection, u: dict, doc_id: str, minimum: str = "view",
     return d, lv
 
 
+EXEC_KEYS = ("inst", "work", "mail")
+NON_MODEL_KEYS = (*EXEC_KEYS, "audit", "cur")
+
+
 def model_fp(data: dict) -> str:
+    """Tudo o que não é execução, auditoria nem governança (versão/status/histórico) — inclusive chaves desconhecidas."""
+    rest = {k: v for k, v in data.items() if k not in NON_MODEL_KEYS and k != "pages"}
     pages = []
     for p in data.get("pages") or []:
-        meta = dict(p.get("meta") or {})
+        q = dict(p) if isinstance(p, dict) else {"_": p}
+        meta = dict(q.get("meta") or {}) if isinstance(q.get("meta"), dict) else {"_": q.get("meta")}
         for k in ("version", "status", "hist"):
             meta.pop(k, None)
-        pages.append({"id": p.get("id"), "name": p.get("name"), "shapes": p.get("shapes"), "conns": p.get("conns"), "meta": meta})
-    return hashlib.sha256(jdump({"n": data.get("name"), "t": data.get("theme"), "r": data.get("res"), "p": pages}).encode()).hexdigest()
+        q["meta"] = meta
+        pages.append(q)
+    return hashlib.sha256(jdump({"rest": rest, "p": pages}).encode()).hexdigest()
 
 
 def status_fp(data: dict) -> str:
@@ -383,16 +392,367 @@ def status_fp(data: dict) -> str:
 
 
 def publish_fp(data: dict) -> str:
-    return jdump([[p.get("id"), (p.get("meta") or {}).get("version"), len((p.get("meta") or {}).get("hist") or [])]
+    return jdump([[p.get("id"), (p.get("meta") or {}).get("version"), (p.get("meta") or {}).get("hist") or []]
                   for p in data.get("pages") or []])
 
 
 def exec_fp(data: dict) -> str:
-    return hashlib.sha256(jdump({k: data.get(k) for k in ("inst", "work", "mail")}).encode()).hexdigest()
+    return hashlib.sha256(jdump({k: data.get(k) for k in EXEC_KEYS}).encode()).hexdigest()
+
+
+# --------------------------------------------------------------------------- saneamento do documento (XSS armazenado)
+# Mesmas regras de SAN.doc() em app/index.html: ids viram [\w.:-], números viram números, cores, traços e
+# enums são validados. Texto livre continua texto (o cliente escapa ao desenhar). Aplicado em toda gravação.
+_ID_BAD = re.compile(r"[^\w.:-]", re.ASCII)
+_COLOR = re.compile(r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,30}|(rgb|hsl)a?\([0-9.,%\s]{1,60}\)|var\(--[\w-]{1,40}\))$", re.ASCII)
+_DASH = re.compile(r"^[0-9.,\s]{0,40}$", re.ASCII)
+_TOK = re.compile(r"^[\w.:-]{0,60}$", re.ASCII)
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_DROP = object()
+
+
+def _is_o(v: Any) -> bool:
+    return isinstance(v, dict)
+
+
+def _arr(v: Any) -> list:
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+def s_id(v: Any) -> str:
+    return _ID_BAD.sub("_", "" if v is None else _js_str(v))[:80] or "_"
+
+
+def s_num(v: Any, d: Any = _DROP) -> Any:
+    n: Any = None
+    if isinstance(v, bool):
+        n = None  # como Number() no cliente: só número ou texto numérico
+    elif isinstance(v, (int, float)):
+        n = v
+    elif isinstance(v, str) and v.strip() and "_" not in v:
+        try:
+            n = float(v.strip())
+        except ValueError:
+            n = None
+    if n is None or (isinstance(n, float) and (n != n or n in (float("inf"), float("-inf")))):
+        return d
+    n = max(-1e9, min(1e9, n))
+    if isinstance(n, float) and n.is_integer():
+        n = int(n)
+    return n
+
+
+def _js_str(v: Any) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+def s_str(v: Any, mx: int = 20000) -> str:
+    return "" if v is None or isinstance(v, (dict, list)) else _js_str(v)[:mx]
+
+
+def _fix(o: dict, k: str, fn):
+    if k not in o:
+        return
+    v = fn(o[k])
+    if v is _DROP:
+        del o[k]
+    else:
+        o[k] = v
+
+
+def _color(v):
+    return v.strip() if isinstance(v, str) and _COLOR.match(v.strip()) else _DROP
+
+
+def _dash(v):
+    return v if isinstance(v, str) and _DASH.match(v) else _DROP
+
+
+def _tok(v):
+    return v if isinstance(v, str) and _TOK.match(v) else _DROP
+
+
+def _one_of(*opts):
+    return lambda v: v if isinstance(v, str) and v in opts else _DROP
+
+
+def _opt_num(v):
+    return v if v == "" or v is None else s_num(v)
+
+
+def _opt_id(v):
+    return s_id(v) if v not in (None, "", 0, False) else v
+
+
+def _st(o: Any) -> dict:
+    if not _is_o(o):
+        return {}
+    for k in list(o):
+        v = o[k]
+        if k in ("f", "s", "t", "hd"):
+            _fix(o, k, _color)
+        elif k in ("sw", "fs"):
+            _fix(o, k, s_num)
+        elif k == "dash":
+            _fix(o, k, _dash)
+        elif k in ("b", "i"):
+            o[k] = 1 if v else 0
+        elif k == "al":
+            _fix(o, k, _one_of("left", "center", "right"))
+        elif k == "below":
+            o[k] = bool(v)
+        elif k == "arrow":
+            _fix(o, k, _one_of("", "end", "both", "none", "start"))
+        elif isinstance(v, (dict, list)) or (isinstance(v, str) and not _TOK.match(v)):
+            del o[k]
+    return o
+
+
+def _dist(v):
+    if not _is_o(v):
+        return _DROP
+    for k in ("a", "m", "b"):
+        _fix(v, k, lambda x: x if x is None or x == "" else s_num(x, 0))
+    _fix(v, "dist", lambda x: x if isinstance(x, str) and _TOK.match(x) else "fixed")
+    return v
+
+
+def _lane(l: dict) -> dict:
+    _fix(l, "id", s_id); _fix(l, "n", lambda x: s_str(x, 200)); _fix(l, "h", lambda x: s_num(x, 150))
+    return l
+
+
+def _data(d: Any) -> dict:
+    if not _is_o(d):
+        return {}
+    _fix(d, "lanes", lambda v: [_lane(l) for l in _arr(v)])
+    _fix(d, "dur", _dist); _fix(d, "wait", _dist); _fix(d, "prob", _opt_num)
+    _fix(d, "cost", lambda x: s_num(x, 0)); _fix(d, "interval", lambda x: s_num(x, 30))
+    for k in ("def", "ai", "loop"):
+        _fix(d, k, bool)
+    _fix(d, "conn", _tok); _fix(d, "page", _opt_id)
+    for k in ("res", "fields", "method", "ep", "cond", "script", "rules", "payload", "out", "mock", "_pageName"):
+        _fix(d, k, s_str)
+
+    def prop(p):
+        _fix(p, "k", lambda x: s_str(x, 200)); _fix(p, "v", lambda x: s_str(x, 2000))
+        return p
+    _fix(d, "props", lambda v: [prop(p) for p in _arr(v)])
+    return d
+
+
+def _end(e: Any) -> dict:
+    if not _is_o(e):
+        return {}
+    _fix(e, "s", _opt_id); _fix(e, "p", lambda v: v if v is None else s_num(v, 0))
+    _fix(e, "x", lambda v: s_num(v, 0)); _fix(e, "y", lambda v: s_num(v, 0))
+    return e
+
+
+def _shape(s: dict) -> dict:
+    s["id"] = s_id(s.get("id"))
+    s["t"] = s["t"] if isinstance(s.get("t"), str) and _TOK.match(s["t"]) else "rect"
+    for k in ("x", "y"):
+        s[k] = s_num(s.get(k), 0)
+    for k in ("w", "h"):
+        s[k] = s_num(s.get(k), 40)
+    _fix(s, "rot", lambda v: s_num(v, 0)); _fix(s, "g", _opt_id); _fix(s, "txt", s_str)
+    s["st"] = _st(s.get("st")); s["d"] = _data(s.get("d"))
+    return s
+
+
+def _conn(c: dict) -> dict:
+    c["id"] = s_id(c.get("id")); c["a"] = _end(c.get("a")); c["b"] = _end(c.get("b"))
+    _fix(c, "rt", lambda v: v if v in ("ortho", "line", "curve") else "ortho")
+    _fix(c, "ft", _one_of("auto", "seq", "msg", "assoc", "plain")); _fix(c, "txt", s_str)
+    c["st"] = _st(c.get("st")); c["d"] = c["d"] if _is_o(c.get("d")) else {}
+    _fix(c["d"], "prob", _opt_num); _fix(c["d"], "cond", s_str); _fix(c["d"], "def", bool)
+    return c
+
+
+def _hist(h: dict) -> dict:
+    _fix(h, "v", lambda x: s_num(x, 0)); _fix(h, "at", lambda x: s_num(x, 0))
+    _fix(h, "by", lambda x: s_str(x, 200)); _fix(h, "note", lambda x: s_str(x, 500))
+    h["hash"] = h.get("hash") if isinstance(h.get("hash"), str) and _HEX64.match(h["hash"]) else ""
+    return h
+
+
+def _page(p: dict) -> dict:
+    p["id"] = s_id(p.get("id")); _fix(p, "name", lambda x: s_str(x, 200))
+    p["shapes"] = [_shape(s) for s in _arr(p.get("shapes"))]
+    p["conns"] = [_conn(c) for c in _arr(p.get("conns"))]
+    m = p["meta"] = p["meta"] if _is_o(p.get("meta")) else {}
+    _fix(m, "owner", lambda x: s_str(x, 200)); _fix(m, "desc", s_str); _fix(m, "status", lambda x: s_str(x, 40))
+    _fix(m, "version", lambda x: s_num(x, 0)); _fix(m, "hist", lambda v: [_hist(h) for h in _arr(v)])
+    return p
+
+
+def _inst(i: dict) -> dict:
+    i["id"] = s_id(i.get("id")); _fix(i, "no", lambda x: s_num(x, 0)); _fix(i, "page", _opt_id)
+    _fix(i, "pname", lambda x: s_str(x, 200)); _fix(i, "status", lambda x: s_str(x, 40)); _fix(i, "created", lambda x: s_num(x, 0))
+    _fix(i, "vars", lambda v: v if _is_o(v) else {})
+
+    def tk(t):
+        _fix(t, "node", s_id); _fix(t, "page", _opt_id); _fix(t, "wait", lambda x: x if x is None else s_str(x, 40))
+        return t
+
+    def hi(h):
+        _fix(h, "node", _opt_id); _fix(h, "page", _opt_id); _fix(h, "ev", lambda x: s_str(x, 60))
+        _fix(h, "at", lambda x: s_num(x, 0)); _fix(h, "por", lambda x: s_str(x, 200))
+        return h
+    i["tokens"] = [tk(t) for t in _arr(i.get("tokens"))]
+    i["hist"] = [hi(h) for h in _arr(i.get("hist"))]
+
+    def par(v):
+        if not _is_o(v):
+            return None
+        _fix(v, "inst", s_id)
+        return v
+    _fix(i, "parent", par)
+    return i
+
+
+def _work(w: dict) -> dict:
+    w["id"] = s_id(w.get("id")); _fix(w, "inst", _opt_id); _fix(w, "no", lambda x: s_num(x, 0))
+    w["kind"] = w.get("kind") if w.get("kind") in ("user", "decision", "ai", "timer", "msg") else "msg"
+    for k in ("title", "proc", "lane", "proposal", "src", "by"):
+        _fix(w, k, s_str)
+    _fix(w, "page", _opt_id); _fix(w, "node", _opt_id); _fix(w, "dur", lambda x: s_num(x, 0)); _fix(w, "at", lambda x: s_num(x, 0))
+
+    def fld(f):
+        _fix(f, "n", lambda x: s_str(x, 100))
+        f["t"] = f.get("t") if f.get("t") in ("text", "number", "bool", "date", "select") else "text"
+        _fix(f, "opts", lambda o: [s_str(x, 200) for x in o] if isinstance(o, list) else None)
+        return f
+
+    def opt(o):
+        _fix(o, "to", s_id); _fix(o, "lbl", lambda x: s_str(x, 200))
+        return o
+    _fix(w, "fields", lambda v: [fld(f) for f in _arr(v)])
+    _fix(w, "opts", lambda v: [opt(o) for o in _arr(v)])
+    return w
+
+
+def _audit_entry(e: dict) -> dict:
+    _fix(e, "seq", lambda x: s_num(x, 0)); _fix(e, "at", lambda x: s_str(x, 40)); _fix(e, "ev", lambda x: s_str(x, 80))
+    e["data"] = e["data"] if _is_o(e.get("data")) else {}
+    _fix(e, "prev", lambda v: v if isinstance(v, str) and _HEX64.match(v) else "")
+    e["hash"] = e.get("hash") if isinstance(e.get("hash"), str) and _HEX64.match(e["hash"]) else ""
+    return e
+
+
+def sanitize_doc(d: Any) -> Any:
+    """Normaliza o documento in place (idempotente) e o devolve."""
+    if not _is_o(d) or not isinstance(d.get("pages"), list):
+        return d
+    _fix(d, "name", lambda x: s_str(x, 160)); _fix(d, "theme", _tok)
+    d["pages"] = [_page(p) for p in _arr(d["pages"])]
+    if _is_o(d.get("res")):
+        res = {}
+        for k, v in d["res"].items():
+            r = v if _is_o(v) else {}
+            r["cap"] = s_num(r.get("cap"), 1); r["cost"] = s_num(r.get("cost"), 0)
+            res[s_str(k, 80)] = r
+        d["res"] = res
+    for k, fn in (("inst", _inst), ("work", _work), ("audit", _audit_entry)):
+        if k in d:
+            d[k] = [fn(x) for x in _arr(d[k])]
+    _fix(d, "mail", lambda v: v if _is_o(v) else {})
+    _fix(d, "cur", lambda v: math.floor(s_num(v, 0) + 0.5))
+    return d
+
+
+# --------------------------------------------------------------------------- trilha de auditoria do documento
+# Gerada no servidor: os registros novos que o navegador propõe são recarimbados com sequência, horário do
+# servidor e autor da sessão, e reencadeados (SHA-256, mesmo formato que o cliente verifica). Os registros
+# já gravados não podem ser alterados nem removidos por uma gravação (append-only).
+DOC_AUDIT_MAX = 5000
+DOC_AUDIT_NEW_MAX = 500
+_SURR = re.compile("[\ud800-\udfff]")
+_ARRAY_INDEX = re.compile(r"^(0|[1-9][0-9]{0,9})$")
+
+
+def js_norm(o: Any) -> Any:
+    """Deixa o valor com a mesma serialização em Python e em JSON.stringify (ordem de chaves e números)."""
+    if isinstance(o, dict):
+        items = [(_SURR.sub("\ufffd", str(k)), js_norm(v)) for k, v in o.items()]
+        idx = sorted((kv for kv in items if _ARRAY_INDEX.match(kv[0]) and int(kv[0]) < 4294967295), key=lambda kv: int(kv[0]))
+        rest = [kv for kv in items if not (_ARRAY_INDEX.match(kv[0]) and int(kv[0]) < 4294967295)]
+        return dict(idx + rest)
+    if isinstance(o, list):
+        return [js_norm(v) for v in o]
+    if isinstance(o, str):
+        return _SURR.sub("\ufffd", o)
+    if isinstance(o, bool):
+        return o
+    if isinstance(o, int) and abs(o) >= 2 ** 53:
+        return str(o)
+    if isinstance(o, float):
+        if o != o or o in (float("inf"), float("-inf")):
+            return None
+        if o.is_integer() and abs(o) < 2 ** 53:
+            return int(o)
+        if "e" in repr(o):
+            return repr(o)
+    return o
+
+
+def js_dumps(o: Any) -> str:
+    return json.dumps(o, ensure_ascii=False, separators=(",", ":"))
+
+
+def doc_audit_hash(prev: str, e: dict) -> str:
+    body = js_dumps({"seq": e["seq"], "at": e["at"], "ev": e["ev"], "data": e["data"]})
+    return hashlib.sha256((prev + body).encode()).hexdigest()
+
+
+def iso_now() -> str:
+    t = now()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%03dZ" % int((t % 1) * 1000)
+
+
+_EV_OK = re.compile(r"^[\w.:-]{1,64}$", re.ASCII)
+
+
+def stamp_doc_audit(old: list, proposed: Any, u: dict) -> tuple[list, int]:
+    """Trilha final = trilha gravada + registros novos recarimbados. Devolve (trilha, quantos novos)."""
+    final = [dict(e) for e in old if isinstance(e, dict)]
+    known = {e.get("hash") for e in final} | {e.get("cli") for e in final if e.get("cli")}
+    fresh = [e for e in (proposed if isinstance(proposed, list) else []) if isinstance(e, dict) and e.get("hash") not in known]
+    if len(fresh) > DOC_AUDIT_NEW_MAX:
+        raise HTTPException(413, "Registros de auditoria demais numa só gravação")
+    for e in fresh:
+        last = final[-1] if final else None
+        prev = last["hash"] if last and isinstance(last.get("hash"), str) and _HEX64.match(last["hash"]) else "0" * 64
+        seq = (s_num(last.get("seq"), 0) if last else 0) + 1
+        ev = e.get("ev") if isinstance(e.get("ev"), str) and _EV_OK.match(e["ev"]) else "evento"
+        data = e.get("data") if isinstance(e.get("data"), dict) else {}
+        if len(js_dumps(data)) > 8192:
+            data = {"truncado": True}
+        data = js_norm(dict(data))
+        data.pop("_por", None); data.pop("_uid", None)
+        data["_por"] = u["name"]; data["_uid"] = u["id"]
+        n = {"seq": seq, "at": iso_now(), "ev": ev, "data": data}
+        n["prev"] = prev
+        n["hash"] = doc_audit_hash(prev, n)
+        cli = e.get("hash")
+        if isinstance(cli, str) and _HEX64.match(cli):
+            n["cli"] = cli
+        final.append(n)
+    if len(final) > DOC_AUDIT_MAX:
+        final = final[-DOC_AUDIT_MAX:]
+    return final, len(fresh)
 
 
 def validate_doc(data: Any) -> dict:
     if not isinstance(data, dict) or not isinstance(data.get("pages"), list) or not data["pages"]:
+        raise HTTPException(400, "Documento inválido: precisa de ao menos uma página")
+    sanitize_doc(data)
+    if not data["pages"]:
         raise HTTPException(400, "Documento inválido: precisa de ao menos uma página")
     name = str(data.get("name") or "Sem título").strip()[:160] or "Sem título"
     data["name"] = name
@@ -437,12 +797,62 @@ def throttle(ip: str) -> bool:
         return len(L) <= 40
 
 
+# erros por (conta, IP): 8 em 15 min bloqueiam aquela conta só para aquele IP
+LOCK_FAILS, LOCK_WINDOW = 8, 900
+_fails: dict[tuple[str, str], list[float]] = {}
+LOGIN_FAIL_MSG = "E-mail ou senha incorretos. Depois de várias tentativas, o acesso deste dispositivo fica bloqueado por 15 minutos."
+
+
+def _fail_list(key: tuple[str, str]) -> list[float]:
+    t = now()
+    L = [x for x in _fails.get(key, []) if t - x < LOCK_WINDOW]
+    if L:
+        _fails[key] = L
+    else:
+        _fails.pop(key, None)
+    return L
+
+
+def login_locked(email: str, ip: str) -> bool:
+    with _alock:
+        return len(_fail_list((email, ip))) >= LOCK_FAILS
+
+
+def login_failed(email: str, ip: str) -> bool:
+    with _alock:
+        L = _fail_list((email, ip))
+        L.append(now())
+        _fails[(email, ip)] = L
+        if len(_fails) > 50000:
+            for k in list(_fails)[:10000]:
+                _fails.pop(k, None)
+        return len(L) >= LOCK_FAILS
+
+
+def account_locked(email: str) -> bool:
+    with _alock:
+        return any(k[0] == email and len(_fail_list(k)) >= LOCK_FAILS for k in list(_fails))
+
+
+def unlock_account(email: str):
+    with _alock:
+        for k in [k for k in _fails if k[0] == email]:
+            _fails.pop(k, None)
+
+
 # --------------------------------------------------------------------------- app
 app = FastAPI(title="GPlanSiS|Flows", version=VERSION, docs_url=None, redoc_url=None, openapi_url=None)
 
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; "
-       "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
-       "frame-ancestors 'self' https://os.gplansis.com")
+# script-src sem 'unsafe-inline': os <script> embutidos do index.html recebem um nonce novo a cada resposta.
+# style-src ainda precisa de 'unsafe-inline' (atributos style= gerados pelo editor); estilo não executa código.
+CSP_TMPL = ("default-src 'self'; script-src 'self'{nonce}; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+            "form-action 'self'; frame-ancestors 'self' https://os.gplansis.com")
+CSP = CSP_TMPL.format(nonce="")
+
+
+def csp_with_nonce(nonce: str) -> str:
+    return CSP_TMPL.format(nonce=f" 'nonce-{nonce}'")
 
 
 @app.middleware("http")
@@ -522,21 +932,23 @@ async def login(req: Request):
     with tx() as c:
         u = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         fail = None
-        if not u:
+        # mesma resposta (e mesmo custo) para conta inexistente, senha errada e bloqueio: não revela quais e-mails existem
+        if login_locked(email, ip):
+            check_pw(pw, DUMMY_HASH)
+            audit(c, "auth.falha", {"email": email, "motivo": "bloqueado"}, user=dict(u) if u else None, ip=ip)
+            fail = (401, LOGIN_FAIL_MSG)
+        elif not u:
             check_pw(pw, DUMMY_HASH)  # mesmo custo de uma conta existente
-            audit(c, "auth.falha", {"email": email, "motivo": "desconhecido"}, ip=ip)
-            fail = (401, "E-mail ou senha incorretos.")
+            lock = login_failed(email, ip)
+            audit(c, "auth.falha", {"email": email, "motivo": "desconhecido", "bloqueio": lock}, ip=ip)
+            fail = (401, LOGIN_FAIL_MSG)
         else:
             u = dict(u)
-            if (u["locked_until"] or 0) > now():
-                mins = int(((u["locked_until"] or 0) - now()) / 60) + 1
-                fail = (423, f"Conta bloqueada por tentativas erradas. Tente em {mins} min.")
-            elif not check_pw(pw, u["pw"]):
-                fails = (u["fails"] or 0) + 1
-                lock = now() + 900 if fails >= 8 else 0
-                c.execute("UPDATE users SET fails=?, locked_until=? WHERE id=?", (0 if lock else fails, lock, u["id"]))
-                audit(c, "auth.falha", {"email": email, "motivo": "senha", "bloqueio": bool(lock)}, user=u, ip=ip)
-                fail = (401, "E-mail ou senha incorretos.")
+            if not check_pw(pw, u["pw"]):
+                lock = login_failed(email, ip)
+                c.execute("UPDATE users SET fails=fails+1 WHERE id=?", (u["id"],))
+                audit(c, "auth.falha", {"email": email, "motivo": "senha", "bloqueio": lock}, user=u, ip=ip)
+                fail = (401, LOGIN_FAIL_MSG)
             elif not u["active"]:
                 audit(c, "auth.falha", {"email": email, "motivo": "inativo"}, user=u, ip=ip)
                 fail = (403, "Usuário desativado. Fale com o administrador.")
@@ -785,6 +1197,7 @@ async def users_update(uid: int, req: Request):
             if not b["active"]:
                 c.execute("DELETE FROM sessions WHERE uid=?", (uid,))
         if b.get("unlock"):
+            unlock_account(t["email"])
             sets.append("locked_until=0, fails=0"); changed["desbloqueado"] = True
         if not sets:
             raise HTTPException(400, "Nada para alterar")
@@ -807,6 +1220,7 @@ def users_reset(uid: int, req: Request):
             raise HTTPException(400, "Use Configurações › Segurança para trocar a sua senha.")
         pw = temp_password()
         c.execute("UPDATE users SET pw=?, must_change=1, fails=0, locked_until=0 WHERE id=?", (hash_pw(pw), uid))
+        unlock_account(t["email"])
         c.execute("DELETE FROM sessions WHERE uid=?", (uid,))
         audit(c, "usuario.senha_redefinida", {"id": uid, "email": t["email"]}, user=u, ip=client_ip(req))
     return {"temp_password": pw}
@@ -922,17 +1336,29 @@ async def docs_save(doc_id: str, req: Request):
                                  "updated_by": names.get(d["updated_by"])}, status_code=409)
         if b.get("force") and lv != "owner" and "docs.all" not in u["_perms"]:
             raise HTTPException(403, "Somente o dono pode sobrescrever a versão de outra pessoa.")
-        old = json.loads(d["data"])
-        can_model = LEVELS[lv] >= 2 and "docs.edit" in u["_perms"]
+        old = sanitize_doc(json.loads(d["data"]))
+        perms = set(u["_perms"])
+        can_model = LEVELS[lv] >= 2 and "docs.edit" in perms
         model_changed = model_fp(old) != model_fp(data) or status_fp(old) != status_fp(data)
         pub_changed = publish_fp(old) != publish_fp(data)
         exec_changed = exec_fp(old) != exec_fp(data)
         if model_changed and not can_model:
             raise HTTPException(403, "Você pode visualizar, mas não editar este documento.")
-        if pub_changed and not (LEVELS[lv] >= 2 and "docs.publish" in u["_perms"]):
+        if pub_changed and not (LEVELS[lv] >= 2 and "docs.publish" in perms):
             raise HTTPException(403, "Sem permissão para publicar versões.")
-        if exec_changed and not (can_model or {"bpm.execute", "bpm.tasks"} & set(u["_perms"])):
+        # execução (instâncias e caixa de tarefas) continua aberta a quem executa processos, mesmo com nível "ver"
+        if exec_changed and not (can_model or {"bpm.execute", "bpm.tasks"} & perms):
             raise HTTPException(403, "Sem permissão para executar processos.")
+        audit_list_, n_new = stamp_doc_audit(old.get("audit") or [], data.get("audit"), u)
+        if n_new and not (can_model or (AUDIT_WRITERS & perms)):
+            raise HTTPException(403, "Quem só tem leitura não grava neste documento.")
+        if not (model_changed or pub_changed or exec_changed or n_new):
+            # nada mudou (a trilha recebida é ignorada: só o servidor acrescenta registros)
+            return {"ver": d["ver"], "updated": d["updated"], "audit": old.get("audit") or []}
+        data["audit"] = audit_list_
+        txt = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        if len(txt) > MAX_DOC:
+            raise HTTPException(413, "Documento grande demais (limite de 12 MB). Limpe instâncias antigas.")
         ver = d["ver"] + 1
         c.execute("UPDATE docs SET data=?, ver=?, size=?, pages=?, name=?, updated=?, updated_by=? WHERE id=?",
                   (txt, ver, len(txt), len(data["pages"]), data["name"], now(), u["id"], doc_id))
@@ -945,7 +1371,7 @@ async def docs_save(doc_id: str, req: Request):
             audit(c, "doc.renomeado", {"doc": doc_id, "de": d["name"], "para": data["name"]}, user=u, ip=client_ip(req))
         if b.get("force"):
             audit(c, "doc.sobrescrito", {"doc": doc_id, "base": base, "servidor": d["ver"]}, user=u, ip=client_ip(req))
-    return {"ver": ver, "updated": now()}
+    return {"ver": ver, "updated": now(), "audit": data["audit"]}
 
 
 @app.patch("/api/docs/{doc_id}/meta")
@@ -1108,14 +1534,25 @@ def versions_restore(doc_id: str, vid: int, req: Request):
             raise HTTPException(404, "Versão não encontrada")
         snapshot(c, doc_id, d["ver"], d["data"], u["id"], "Antes de restaurar a versão de " + time.strftime("%d/%m %H:%M", time.localtime(r["at"])), "named")
         data = json.loads(r["data"])
+        cur = json.loads(d["data"])
+        # a trilha do documento é append-only: a versão restaurada herda a trilha atual
+        data["audit"], _ = stamp_doc_audit(cur.get("audit") or [], [{"ev": "doc.versao_restaurada", "data": {"versao": vid}}], u)
+        sanitize_doc(data)
+        txt = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         ver = d["ver"] + 1
         c.execute("UPDATE docs SET data=?, ver=?, size=?, pages=?, name=?, updated=?, updated_by=? WHERE id=?",
-                  (r["data"], ver, len(r["data"]), len(data.get("pages") or []), data.get("name") or d["name"], now(), u["id"], doc_id))
+                  (txt, ver, len(txt), len(data.get("pages") or []), data.get("name") or d["name"], now(), u["id"], doc_id))
         audit(c, "doc.versao_restaurada", {"doc": doc_id, "versao": vid}, user=u, ip=client_ip(req))
     return {"ver": ver}
 
 
 # ---------------- auditoria e painel
+def csv_cell(v: Any) -> str:
+    """Evita que a planilha interprete o texto como fórmula (=, +, -, @, tab, CR)."""
+    v = "" if v is None else str(v)
+    return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
+
 @app.get("/api/audit")
 def audit_list(req: Request, limit: int = 200, before: int = 0, q: str = ""):
     u = current_user(req)
@@ -1151,7 +1588,8 @@ def audit_csv(req: Request):
     w.writerow(["seq", "quando_utc", "usuario", "evento", "dados", "ip", "prev", "hash"])
     with ro() as c:
         for r in c.execute("SELECT * FROM audit ORDER BY seq"):
-            w.writerow([r["seq"], r["at"], r["email"] or "", r["ev"], r["data"], r["ip"] or "", r["prev"], r["hash"]])
+            w.writerow([r["seq"], r["at"], csv_cell(r["email"] or ""), csv_cell(r["ev"]), csv_cell(r["data"]),
+                        csv_cell(r["ip"] or ""), r["prev"], r["hash"]])
     with tx() as c:
         audit(c, "auditoria.exportada", {}, user=u, ip=client_ip(req))
     return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
@@ -1360,6 +1798,22 @@ def sw_resp() -> Response:
                     headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
 
 
+_index_cache: dict = {}
+_SCRIPT_TAG = re.compile(r"<script(?=[\s>])", re.I)
+
+
+def index_resp() -> Response:
+    """index.html com nonce: o template é lido uma vez por publicação; o nonce é novo a cada resposta."""
+    p = STATIC_DIR / "index.html"
+    key = p.stat().st_mtime_ns
+    if _index_cache.get("k") != key:
+        _index_cache.update(k=key, html=p.read_text(encoding="utf-8"))
+    nonce = secrets.token_urlsafe(18)
+    html = _SCRIPT_TAG.sub(f'<script nonce="{nonce}"', _index_cache["html"])
+    return Response(html, media_type="text/html; charset=utf-8",
+                    headers={"Cache-Control": "no-cache", "Content-Security-Policy": csp_with_nonce(nonce)})
+
+
 def static_resp(p: Path, cache: str) -> FileResponse:
     r = FileResponse(p, media_type=STATIC_TYPES.get(p.name))
     r.headers["Cache-Control"] = cache
@@ -1382,7 +1836,7 @@ def static(name: str):
         raise HTTPException(404, "Rota inexistente")
     if name == "sw.js" and (STATIC_DIR / name).is_file():
         return sw_resp()
-    if name in STATIC_FILES and (STATIC_DIR / name).is_file():
-        cache = "no-cache" if name in ("index.html", "plataforma.js", "plataforma.css", "manifest.webmanifest") else "public, max-age=86400"
+    if name in STATIC_FILES and name != "index.html" and (STATIC_DIR / name).is_file():
+        cache = "no-cache" if name in ("plataforma.js", "plataforma.css", "manifest.webmanifest") else "public, max-age=86400"
         return static_resp(STATIC_DIR / name, cache)
-    return static_resp(STATIC_DIR / "index.html", "no-cache")
+    return index_resp()
