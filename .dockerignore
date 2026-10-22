@@ -1,0 +1,6 @@
+exemplos
+*.md
+SHA256SUMS
+dados
+deploy/.env
+**/__pycache__

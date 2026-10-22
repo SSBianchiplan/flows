@@ -1,0 +1,21 @@
+# GPlanSiS|Flows 2.0 — flows.gplansis.com (bloco próprio; não toca nos outros sites).
+# App + API em contêiner, 127.0.0.1:8999 (/opt/flows). CSP e cabeçalhos vêm da aplicação.
+flows.gplansis.com {
+	import seguranca_hub
+	# a IA responde em streaming: sem compressão nessa rota, para o texto chegar na hora
+	@comprime not path /api/ai/*
+	encode @comprime zstd gzip
+	request_body {
+		max_size 16MB
+	}
+	reverse_proxy 127.0.0.1:8999 {
+		flush_interval -1
+		header_up X-Forwarded-Proto https
+		transport http {
+			response_header_timeout 300s
+		}
+	}
+	log {
+		output file /var/log/caddy/flows.log
+	}
+}

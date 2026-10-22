@@ -1,0 +1,1651 @@
+{
+ "v": 1,
+ "name": "GPlanSiS|Flows · exemplos",
+ "theme": "gplansis",
+ "pages": [
+  {
+   "id": "p1uh870i",
+   "name": "O2C · Pedido a faturamento",
+   "shapes": [
+    {
+     "id": "s1uhou11",
+     "t": "pool",
+     "x": 0,
+     "y": 208,
+     "w": 2336,
+     "h": 710,
+     "txt": "GPlanSiS|Group",
+     "st": {},
+     "d": {
+      "lanes": [
+       {
+        "id": "l1uhkwu8",
+        "n": "Comercial",
+        "h": 148
+       },
+       {
+        "id": "l1uhlz35",
+        "n": "Engenharia",
+        "h": 148
+       },
+       {
+        "id": "l1uhmejt",
+        "n": "PCP",
+        "h": 148
+       },
+       {
+        "id": "l1uhnj5b",
+        "n": "Financeiro",
+        "h": 266
+       }
+      ]
+     }
+    },
+    {
+     "id": "s1uha44h",
+     "t": "pool",
+     "x": 0,
+     "y": 0,
+     "w": 806,
+     "h": 148,
+     "txt": "Cliente",
+     "st": {},
+     "d": {
+      "lanes": [
+       {
+        "id": "l1uipftz",
+        "n": "Cliente",
+        "h": 148
+       }
+      ]
+     }
+    },
+    {
+     "id": "s1uhdtzm",
+     "t": "ev-start",
+     "x": 150,
+     "y": 50,
+     "w": 36,
+     "h": 36,
+     "txt": "Necessidade de painel",
+     "st": {},
+     "d": {
+      "fields": "cliente:text\nvalor:number",
+      "interval": 240
+     }
+    },
+    {
+     "id": "s1uhemsk",
+     "t": "task-send",
+     "x": 280,
+     "y": 40,
+     "w": 120,
+     "h": 72,
+     "txt": "Enviar pedido",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "fixed",
+       "a": 5
+      }
+     }
+    },
+    {
+     "id": "s1uhfx1b",
+     "t": "ev-msgc",
+     "x": 490,
+     "y": 50,
+     "w": 36,
+     "h": 36,
+     "txt": "Receber retorno",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uhggbt",
+     "t": "ev-end",
+     "x": 660,
+     "y": 50,
+     "w": 36,
+     "h": 36,
+     "txt": "Pedido encerrado",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uhrox0",
+     "t": "ev-start-msg",
+     "x": 150,
+     "y": 260,
+     "w": 36,
+     "h": 36,
+     "txt": "Pedido recebido",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uhsjob",
+     "t": "task-svc",
+     "x": 280,
+     "y": 250,
+     "w": 120,
+     "h": 72,
+     "txt": "Registrar pedido no ERP",
+     "st": {},
+     "d": {
+      "conn": "erp",
+      "ep": "erp://pedidos",
+      "method": "POST",
+      "dur": {
+       "dist": "fixed",
+       "a": 2
+      },
+      "out": "pedido",
+      "payload": "{\"cliente\":\"{{cliente}}\",\"valor\":{{valor}}}"
+     }
+    },
+    {
+     "id": "s1uhtw40",
+     "t": "task-rule",
+     "x": 450,
+     "y": 750,
+     "w": 120,
+     "h": 72,
+     "txt": "Analisar crédito",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "fixed",
+       "a": 3
+      },
+      "rules": "valor <= 300000 => credito = 'ok'\nvalor > 300000 => credito = 'recusado'"
+     }
+    },
+    {
+     "id": "s1uhu6zr",
+     "t": "gw-xor",
+     "x": 660,
+     "y": 750,
+     "w": 48,
+     "h": 48,
+     "txt": "Crédito aprovado?",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uhv6fw",
+     "t": "task-user",
+     "x": 790,
+     "y": 390,
+     "w": 120,
+     "h": 72,
+     "txt": "Elaborar orçamento técnico",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 60,
+       "m": 120,
+       "b": 240
+      },
+      "fields": "horas_eng:number"
+     }
+    },
+    {
+     "id": "s1uhw6yq",
+     "t": "task-svc",
+     "x": 960,
+     "y": 390,
+     "w": 120,
+     "h": 72,
+     "txt": "Agente revisa lista de materiais",
+     "st": {},
+     "d": {
+      "conn": "ai",
+      "ep": "agent://proposta",
+      "method": "PROPOSE",
+      "dur": {
+       "dist": "fixed",
+       "a": 5
+      },
+      "payload": "Cliente {{cliente}}, valor {{valor}}"
+     }
+    },
+    {
+     "id": "s1uhxxbv",
+     "t": "gw-xor",
+     "x": 1170,
+     "y": 250,
+     "w": 48,
+     "h": 48,
+     "txt": "Valor > R$ 50 mil?",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uhyyc4",
+     "t": "task-user",
+     "x": 1300,
+     "y": 250,
+     "w": 120,
+     "h": 72,
+     "txt": "Aprovação da diretoria",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 30,
+       "m": 90,
+       "b": 480
+      },
+      "fields": "aprovado:bool"
+     }
+    },
+    {
+     "id": "s1uhzxs8",
+     "t": "gw-xor",
+     "x": 1510,
+     "y": 250,
+     "w": 48,
+     "h": 48,
+     "txt": "Aprovado?",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ui0ipf",
+     "t": "callact",
+     "x": 1640,
+     "y": 540,
+     "w": 124,
+     "h": 76,
+     "txt": "Produzir painel",
+     "st": {},
+     "d": {
+      "page": "p1ugckgu"
+     }
+    },
+    {
+     "id": "s1ui1ypa",
+     "t": "task-svc",
+     "x": 1810,
+     "y": 690,
+     "w": 120,
+     "h": 72,
+     "txt": "Emitir NF-e",
+     "st": {},
+     "d": {
+      "conn": "erp",
+      "ep": "erp://pedidos",
+      "method": "POST",
+      "dur": {
+       "dist": "fixed",
+       "a": 4
+      },
+      "out": "nfe",
+      "payload": "{\"pedido\":\"{{pedido.id}}\"}"
+     }
+    },
+    {
+     "id": "s1ui28tw",
+     "t": "task-send",
+     "x": 1980,
+     "y": 250,
+     "w": 120,
+     "h": 72,
+     "txt": "Enviar NF e painel",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 10,
+       "m": 20,
+       "b": 40
+      }
+     }
+    },
+    {
+     "id": "s1ui35d0",
+     "t": "ev-end",
+     "x": 2190,
+     "y": 260,
+     "w": 36,
+     "h": 36,
+     "txt": "Pedido faturado",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ui4yg3",
+     "t": "task-send",
+     "x": 1640,
+     "y": 750,
+     "w": 120,
+     "h": 72,
+     "txt": "Notificar recusa",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 10,
+       "m": 15,
+       "b": 30
+      }
+     }
+    },
+    {
+     "id": "s1ui5tjy",
+     "t": "ev-end",
+     "x": 1850,
+     "y": 820,
+     "w": 36,
+     "h": 36,
+     "txt": "Pedido recusado",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uiqczi",
+     "t": "annot",
+     "x": 930,
+     "y": 310,
+     "w": 150,
+     "h": 50,
+     "txt": "Horas de engenharia alimentam a CPU",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uistnl",
+     "t": "dataobj",
+     "x": 1954,
+     "y": 792,
+     "w": 36,
+     "h": 46,
+     "txt": "NF-e (XML)",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "conns": [
+    {
+     "id": "c1uhhpbl",
+     "a": {
+      "s": "s1uhdtzm"
+     },
+     "b": {
+      "s": "s1uhemsk"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uhib7h",
+     "a": {
+      "s": "s1uhemsk"
+     },
+     "b": {
+      "s": "s1uhfx1b"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uhjzsr",
+     "a": {
+      "s": "s1uhfx1b"
+     },
+     "b": {
+      "s": "s1uhggbt"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ui6l3n",
+     "a": {
+      "s": "s1uhrox0"
+     },
+     "b": {
+      "s": "s1uhsjob"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ui77tv",
+     "a": {
+      "s": "s1uhsjob"
+     },
+     "b": {
+      "s": "s1uhtw40"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ui8nvz",
+     "a": {
+      "s": "s1uhtw40"
+     },
+     "b": {
+      "s": "s1uhu6zr"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ui9u69",
+     "a": {
+      "s": "s1uhu6zr"
+     },
+     "b": {
+      "s": "s1uhv6fw"
+     },
+     "rt": "ortho",
+     "txt": "Sim",
+     "st": {},
+     "d": {
+      "prob": 85,
+      "cond": "credito == 'ok'"
+     }
+    },
+    {
+     "id": "c1uiaeic",
+     "a": {
+      "s": "s1uhu6zr"
+     },
+     "b": {
+      "s": "s1ui4yg3"
+     },
+     "rt": "ortho",
+     "txt": "Não",
+     "st": {},
+     "d": {
+      "prob": 15,
+      "def": true
+     }
+    },
+    {
+     "id": "c1uib8yh",
+     "a": {
+      "s": "s1uhv6fw"
+     },
+     "b": {
+      "s": "s1uhw6yq"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uic6am",
+     "a": {
+      "s": "s1uhw6yq"
+     },
+     "b": {
+      "s": "s1uhxxbv"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uidwe9",
+     "a": {
+      "s": "s1uhxxbv"
+     },
+     "b": {
+      "s": "s1uhyyc4"
+     },
+     "rt": "ortho",
+     "txt": "Sim",
+     "st": {},
+     "d": {
+      "prob": 30,
+      "cond": "valor > 50000"
+     }
+    },
+    {
+     "id": "c1uierj3",
+     "a": {
+      "s": "s1uhxxbv"
+     },
+     "b": {
+      "s": "s1ui0ipf"
+     },
+     "rt": "ortho",
+     "txt": "Não",
+     "st": {},
+     "d": {
+      "prob": 70,
+      "def": true
+     }
+    },
+    {
+     "id": "c1uifrm6",
+     "a": {
+      "s": "s1uhyyc4"
+     },
+     "b": {
+      "s": "s1uhzxs8"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uiggkd",
+     "a": {
+      "s": "s1uhzxs8"
+     },
+     "b": {
+      "s": "s1ui0ipf"
+     },
+     "rt": "ortho",
+     "txt": "Sim",
+     "st": {},
+     "d": {
+      "prob": 90,
+      "cond": "aprovado == true"
+     }
+    },
+    {
+     "id": "c1uihts2",
+     "a": {
+      "s": "s1uhzxs8"
+     },
+     "b": {
+      "s": "s1ui4yg3"
+     },
+     "rt": "ortho",
+     "txt": "Não",
+     "st": {},
+     "d": {
+      "prob": 10,
+      "def": true
+     }
+    },
+    {
+     "id": "c1uiia88",
+     "a": {
+      "s": "s1ui0ipf"
+     },
+     "b": {
+      "s": "s1ui1ypa"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uijvf8",
+     "a": {
+      "s": "s1ui1ypa"
+     },
+     "b": {
+      "s": "s1ui28tw"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uik2b2",
+     "a": {
+      "s": "s1ui28tw"
+     },
+     "b": {
+      "s": "s1ui35d0"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uil9y6",
+     "a": {
+      "s": "s1ui4yg3"
+     },
+     "b": {
+      "s": "s1ui5tjy"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uimqor",
+     "a": {
+      "s": "s1uhemsk"
+     },
+     "b": {
+      "s": "s1uhrox0"
+     },
+     "rt": "ortho",
+     "txt": "Pedido",
+     "st": {},
+     "d": {},
+     "ft": "msg"
+    },
+    {
+     "id": "c1uinnzj",
+     "a": {
+      "s": "s1ui28tw"
+     },
+     "b": {
+      "s": "s1uhfx1b"
+     },
+     "rt": "ortho",
+     "txt": "NF-e",
+     "st": {},
+     "d": {},
+     "ft": "msg"
+    },
+    {
+     "id": "c1uiouy0",
+     "a": {
+      "s": "s1ui4yg3"
+     },
+     "b": {
+      "s": "s1uhfx1b"
+     },
+     "rt": "ortho",
+     "txt": "Recusa",
+     "st": {},
+     "d": {},
+     "ft": "msg"
+    },
+    {
+     "id": "c1uircoi",
+     "a": {
+      "s": "s1uiqczi"
+     },
+     "b": {
+      "s": "s1uhv6fw"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uit88e",
+     "a": {
+      "s": "s1ui1ypa"
+     },
+     "b": {
+      "s": "s1uistnl"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "meta": {
+    "owner": "Comercial",
+    "version": 0,
+    "status": "Rascunho",
+    "desc": "Do pedido do cliente ao faturamento, com crédito, orçamento, alçada e produção.",
+    "hist": []
+   }
+  },
+  {
+   "id": "p1ugckgu",
+   "name": "MES · Produção do painel",
+   "shapes": [
+    {
+     "id": "s1uggbrv",
+     "t": "pool",
+     "x": 0,
+     "y": 0,
+     "w": 1826,
+     "h": 562,
+     "txt": "Fábrica",
+     "st": {},
+     "d": {
+      "lanes": [
+       {
+        "id": "l1ugdqoh",
+        "n": "PCP",
+        "h": 148
+       },
+       {
+        "id": "l1ugeq4f",
+        "n": "Produção",
+        "h": 266
+       },
+       {
+        "id": "l1ugfkpe",
+        "n": "Qualidade",
+        "h": 148
+       }
+      ]
+     }
+    },
+    {
+     "id": "s1ugj914",
+     "t": "ev-start",
+     "x": 150,
+     "y": 50,
+     "w": 36,
+     "h": 36,
+     "txt": "OP liberada",
+     "st": {},
+     "d": {
+      "fields": "op:text"
+     }
+    },
+    {
+     "id": "s1ugkj83",
+     "t": "task-svc",
+     "x": 280,
+     "y": 40,
+     "w": 120,
+     "h": 72,
+     "txt": "Programar OP no MES",
+     "st": {},
+     "d": {
+      "conn": "mes",
+      "ep": "mes://ordens-producao",
+      "method": "POST",
+      "dur": {
+       "dist": "fixed",
+       "a": 2
+      },
+      "payload": "{\"op\":\"{{op}}\",\"cliente\":\"{{cliente}}\"}"
+     }
+    },
+    {
+     "id": "s1uglxrc",
+     "t": "gw-and",
+     "x": 490,
+     "y": 50,
+     "w": 48,
+     "h": 48,
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ugmc0w",
+     "t": "task-manual",
+     "x": 620,
+     "y": 190,
+     "w": 120,
+     "h": 72,
+     "txt": "Separar materiais",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 30,
+       "m": 45,
+       "b": 90
+      }
+     }
+    },
+    {
+     "id": "s1ugn09d",
+     "t": "task-user",
+     "x": 620,
+     "y": 300,
+     "w": 120,
+     "h": 72,
+     "txt": "Setup da bancada",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 20,
+       "m": 40,
+       "b": 60
+      }
+     }
+    },
+    {
+     "id": "s1ugoejf",
+     "t": "gw-and",
+     "x": 830,
+     "y": 260,
+     "w": 48,
+     "h": 48,
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ugpegv",
+     "t": "task-manual",
+     "x": 960,
+     "y": 250,
+     "w": 120,
+     "h": 72,
+     "txt": "Montar painel",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 240,
+       "m": 360,
+       "b": 600
+      }
+     }
+    },
+    {
+     "id": "s1ugqyif",
+     "t": "task-user",
+     "x": 1130,
+     "y": 450,
+     "w": 120,
+     "h": 72,
+     "txt": "Inspeção e teste",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 30,
+       "m": 45,
+       "b": 90
+      },
+      "fields": "aprovado:bool\nobs:text"
+     }
+    },
+    {
+     "id": "s1ugrcw8",
+     "t": "gw-xor",
+     "x": 1340,
+     "y": 460,
+     "w": 48,
+     "h": 48,
+     "txt": "Aprovado?",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ugskee",
+     "t": "task-manual",
+     "x": 1470,
+     "y": 250,
+     "w": 120,
+     "h": 72,
+     "txt": "Retrabalho",
+     "st": {},
+     "d": {
+      "dur": {
+       "dist": "tri",
+       "a": 30,
+       "m": 60,
+       "b": 180
+      }
+     }
+    },
+    {
+     "id": "s1ugtetz",
+     "t": "task-svc",
+     "x": 1470,
+     "y": 40,
+     "w": 120,
+     "h": 72,
+     "txt": "Publicar status (Sparkplug)",
+     "st": {},
+     "d": {
+      "conn": "mqtt",
+      "ep": "spBv1.0/GPS/DCMD/edge01",
+      "method": "PUBLISH",
+      "dur": {
+       "dist": "fixed",
+       "a": 1
+      },
+      "payload": "{\"op\":\"{{op}}\",\"estado\":\"liberado\"}"
+     }
+    },
+    {
+     "id": "s1ugujit",
+     "t": "ev-end",
+     "x": 1680,
+     "y": 50,
+     "w": 36,
+     "h": 36,
+     "txt": "Painel liberado",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "conns": [
+    {
+     "id": "c1ugv6uk",
+     "a": {
+      "s": "s1ugj914"
+     },
+     "b": {
+      "s": "s1ugkj83"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ugwcz2",
+     "a": {
+      "s": "s1ugkj83"
+     },
+     "b": {
+      "s": "s1uglxrc"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ugxrfv",
+     "a": {
+      "s": "s1uglxrc"
+     },
+     "b": {
+      "s": "s1ugmc0w"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ugyeda",
+     "a": {
+      "s": "s1uglxrc"
+     },
+     "b": {
+      "s": "s1ugn09d"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1ugzy6p",
+     "a": {
+      "s": "s1ugmc0w"
+     },
+     "b": {
+      "s": "s1ugoejf"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh06jh",
+     "a": {
+      "s": "s1ugn09d"
+     },
+     "b": {
+      "s": "s1ugoejf"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh1yj8",
+     "a": {
+      "s": "s1ugoejf"
+     },
+     "b": {
+      "s": "s1ugpegv"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh22o5",
+     "a": {
+      "s": "s1ugpegv"
+     },
+     "b": {
+      "s": "s1ugqyif"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh3thv",
+     "a": {
+      "s": "s1ugqyif"
+     },
+     "b": {
+      "s": "s1ugrcw8"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh4gu0",
+     "a": {
+      "s": "s1ugrcw8"
+     },
+     "b": {
+      "s": "s1ugtetz"
+     },
+     "rt": "ortho",
+     "txt": "Sim",
+     "st": {},
+     "d": {
+      "prob": 88,
+      "cond": "aprovado == true"
+     }
+    },
+    {
+     "id": "c1uh52lq",
+     "a": {
+      "s": "s1ugrcw8"
+     },
+     "b": {
+      "s": "s1ugskee"
+     },
+     "rt": "ortho",
+     "txt": "Não",
+     "st": {},
+     "d": {
+      "prob": 12,
+      "def": true
+     }
+    },
+    {
+     "id": "c1uh6gel",
+     "a": {
+      "s": "s1ugskee"
+     },
+     "b": {
+      "s": "s1ugqyif"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uh7bzg",
+     "a": {
+      "s": "s1ugtetz"
+     },
+     "b": {
+      "s": "s1ugujit"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "meta": {
+    "owner": "PCP",
+    "version": 0,
+    "status": "Rascunho",
+    "desc": "Ordem de produção do painel elétrico, do MES à liberação pela Qualidade.",
+    "hist": []
+   }
+  },
+  {
+   "id": "p1uiuwkv",
+   "name": "Fluxograma · Atendimento técnico",
+   "shapes": [
+    {
+     "id": "s1uivo4m",
+     "t": "fc-term",
+     "x": 120,
+     "y": 30,
+     "w": 120,
+     "h": 50,
+     "txt": "Chamado aberto",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uiw90x",
+     "t": "fc-manin",
+     "x": 120,
+     "y": 150,
+     "w": 120,
+     "h": 60,
+     "txt": "Registrar sintoma",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uixlpg",
+     "t": "fc-dec",
+     "x": 130,
+     "y": 270,
+     "w": 110,
+     "h": 80,
+     "txt": "Resolve remoto?",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uiykep",
+     "t": "fc-proc",
+     "x": 30,
+     "y": 410,
+     "w": 120,
+     "h": 66,
+     "txt": "Acesso remoto ao CLP",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uizizt",
+     "t": "fc-predef",
+     "x": 210,
+     "y": 410,
+     "w": 124,
+     "h": 66,
+     "txt": "Visita técnica",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uj0y1r",
+     "t": "fc-doc",
+     "x": 120,
+     "y": 530,
+     "w": 120,
+     "h": 76,
+     "txt": "Relatório de atendimento",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uj14vn",
+     "t": "fc-term",
+     "x": 120,
+     "y": 680,
+     "w": 120,
+     "h": 50,
+     "txt": "Chamado encerrado",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "conns": [
+    {
+     "id": "c1uj2xj0",
+     "a": {
+      "s": "s1uivo4m"
+     },
+     "b": {
+      "s": "s1uiw90x"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uj3ddf",
+     "a": {
+      "s": "s1uiw90x"
+     },
+     "b": {
+      "s": "s1uixlpg"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uj480f",
+     "a": {
+      "s": "s1uixlpg"
+     },
+     "b": {
+      "s": "s1uiykep"
+     },
+     "rt": "ortho",
+     "txt": "Sim",
+     "st": {},
+     "d": {
+      "prob": 60
+     }
+    },
+    {
+     "id": "c1uj5fb3",
+     "a": {
+      "s": "s1uixlpg"
+     },
+     "b": {
+      "s": "s1uizizt"
+     },
+     "rt": "ortho",
+     "txt": "Não",
+     "st": {},
+     "d": {
+      "prob": 40
+     }
+    },
+    {
+     "id": "c1uj6he5",
+     "a": {
+      "s": "s1uiykep"
+     },
+     "b": {
+      "s": "s1uj0y1r"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uj73g4",
+     "a": {
+      "s": "s1uizizt"
+     },
+     "b": {
+      "s": "s1uj0y1r"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "c1uj8o43",
+     "a": {
+      "s": "s1uj0y1r"
+     },
+     "b": {
+      "s": "s1uj14vn"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "meta": {
+    "owner": "",
+    "version": 0,
+    "status": "Rascunho",
+    "desc": "",
+    "hist": []
+   }
+  },
+  {
+   "id": "p1uj9ki2",
+   "name": "Arquitetura · Integração IT/OT",
+   "shapes": [
+    {
+     "id": "s1uja1am",
+     "t": "cont",
+     "x": 0,
+     "y": 0,
+     "w": 820,
+     "h": 150,
+     "txt": "Camada corporativa (TI)",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujbs3y",
+     "t": "cont",
+     "x": 0,
+     "y": 200,
+     "w": 820,
+     "h": 150,
+     "txt": "Camada de operação (TO)",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujcke7",
+     "t": "it-app",
+     "x": 60,
+     "y": 60,
+     "w": 48,
+     "h": 48,
+     "txt": "GPlanSiS|Flows",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujd82q",
+     "t": "it-server",
+     "x": 230,
+     "y": 60,
+     "w": 48,
+     "h": 48,
+     "txt": "GPlanSiS ERP",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujemgo",
+     "t": "it-db",
+     "x": 400,
+     "y": 60,
+     "w": 48,
+     "h": 48,
+     "txt": "PostgreSQL 16",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujfunm",
+     "t": "it-app",
+     "x": 570,
+     "y": 60,
+     "w": 48,
+     "h": 48,
+     "txt": "GPlanSiS|Drawings",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujg15j",
+     "t": "it-user",
+     "x": 730,
+     "y": 60,
+     "w": 44,
+     "h": 48,
+     "txt": "Gestores",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujh8sp",
+     "t": "it-server",
+     "x": 60,
+     "y": 260,
+     "w": 48,
+     "h": 48,
+     "txt": "GPlanSiS MES",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1uji8zw",
+     "t": "it-broker",
+     "x": 230,
+     "y": 260,
+     "w": 48,
+     "h": 48,
+     "txt": "Broker MQTT",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujjmzj",
+     "t": "ind-gw",
+     "x": 398,
+     "y": 264,
+     "w": 52,
+     "h": 40,
+     "txt": "Gateway IoT",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujkuf8",
+     "t": "ind-plc",
+     "x": 566,
+     "y": 262,
+     "w": 56,
+     "h": 44,
+     "txt": "CLP da linha",
+     "st": {},
+     "d": {}
+    },
+    {
+     "id": "s1ujlsu4",
+     "t": "ind-sensor",
+     "x": 740,
+     "y": 262,
+     "w": 40,
+     "h": 40,
+     "txt": "Sensores",
+     "st": {},
+     "d": {}
+    }
+   ],
+   "conns": [
+    {
+     "id": "c1ujm3ld",
+     "a": {
+      "s": "s1ujcke7"
+     },
+     "b": {
+      "s": "s1ujd82q"
+     },
+     "rt": "ortho",
+     "txt": "REST",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujn0js",
+     "a": {
+      "s": "s1ujd82q"
+     },
+     "b": {
+      "s": "s1ujemgo"
+     },
+     "rt": "ortho",
+     "txt": "SQL",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujooxy",
+     "a": {
+      "s": "s1ujcke7"
+     },
+     "b": {
+      "s": "s1ujfunm"
+     },
+     "rt": "ortho",
+     "txt": "DXF",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujpcah",
+     "a": {
+      "s": "s1ujg15j"
+     },
+     "b": {
+      "s": "s1ujfunm"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujq5r7",
+     "a": {
+      "s": "s1ujcke7"
+     },
+     "b": {
+      "s": "s1ujh8sp"
+     },
+     "rt": "ortho",
+     "txt": "REST",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujrxe4",
+     "a": {
+      "s": "s1ujh8sp"
+     },
+     "b": {
+      "s": "s1uji8zw"
+     },
+     "rt": "ortho",
+     "txt": "Sparkplug B",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujs9id",
+     "a": {
+      "s": "s1uji8zw"
+     },
+     "b": {
+      "s": "s1ujjmzj"
+     },
+     "rt": "ortho",
+     "txt": "MQTT",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujthr5",
+     "a": {
+      "s": "s1ujjmzj"
+     },
+     "b": {
+      "s": "s1ujkuf8"
+     },
+     "rt": "ortho",
+     "txt": "OPC UA",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujulg7",
+     "a": {
+      "s": "s1ujkuf8"
+     },
+     "b": {
+      "s": "s1ujlsu4"
+     },
+     "rt": "ortho",
+     "txt": "4–20 mA",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    },
+    {
+     "id": "c1ujvxyp",
+     "a": {
+      "s": "s1ujh8sp"
+     },
+     "b": {
+      "s": "s1ujemgo"
+     },
+     "rt": "ortho",
+     "txt": "",
+     "st": {
+      "arrow": "both"
+     },
+     "d": {}
+    }
+   ],
+   "meta": {
+    "owner": "",
+    "version": 0,
+    "status": "Rascunho",
+    "desc": "",
+    "hist": []
+   }
+  }
+ ],
+ "cur": 0,
+ "res": {
+  "Cliente": {
+   "cap": 99,
+   "cost": 0
+  },
+  "Comercial": {
+   "cap": 2,
+   "cost": 85
+  },
+  "Engenharia": {
+   "cap": 2,
+   "cost": 140
+  },
+  "PCP": {
+   "cap": 1,
+   "cost": 110
+  },
+  "Financeiro": {
+   "cap": 1,
+   "cost": 90
+  },
+  "Produção": {
+   "cap": 3,
+   "cost": 75
+  },
+  "Qualidade": {
+   "cap": 1,
+   "cost": 95
+  }
+ },
+ "inst": [],
+ "audit": [
+  {
+   "seq": 1,
+   "at": "2026-10-19T18:14:01.507Z",
+   "ev": "documento.criado",
+   "data": {
+    "origem": "exemplos"
+   },
+   "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+   "hash": "27bac7dfe5b57751292f784d2da8f5a567ef58303dffdec51827e1eda2ddc9f8"
+  }
+ ],
+ "work": [],
+ "mail": {}
+}

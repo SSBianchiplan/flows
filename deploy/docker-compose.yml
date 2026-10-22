@@ -1,0 +1,31 @@
+# GPlanSiS|Flows 2.0 — flows.gplansis.com (/opt/flows)
+# App + API em 127.0.0.1:8999, atrás do Caddy do host (TLS: /etc/caddy/flows.caddy).
+# Uso (na raiz do pacote): docker compose -f deploy/docker-compose.yml up -d --build
+# Segredos em deploy/.env (FLOWS_MASTER_PASSWORD na primeira subida; ANTHROPIC_API_KEY para a IA).
+services:
+  flows:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: gplansis/flows:2.1.0
+    container_name: gplansis-flows
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: America/Sao_Paulo
+      FLOWS_SECURE_COOKIE: "1"
+    ports:
+      - "127.0.0.1:8999:8080"
+    volumes:
+      - ../dados:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
