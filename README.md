@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://flows.gplansis.com"><img alt="No ar" src="https://img.shields.io/badge/no%20ar-flows.gplansis.com-f6a709?style=flat-square"></a>
   <img alt="Versão" src="https://img.shields.io/badge/vers%C3%A3o-2.1.0-1f2428?style=flat-square">
-  <img alt="Licença" src="https://img.shields.io/badge/licen%C3%A7a-a%20definir-8e979d?style=flat-square">
+  <a href="LICENSE"><img alt="licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-2ea44f?style=flat-square"><">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12-1f2428?style=flat-square&logo=python&logoColor=white">
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-SQLite-1f2428?style=flat-square&logo=fastapi&logoColor=white">
   <img alt="PWA" src="https://img.shields.io/badge/PWA-instal%C3%A1vel-1f2428?style=flat-square">
@@ -196,7 +196,7 @@ Leia o [guia de contribuição](CONTRIBUTING.md), abra uma [issue](../../issues/
 
 ## Licença
 
-**Licença: a definir pela GPlanSiS.** Até a definição, todos os direitos são reservados à GPlanSiS|Group; o código está publicado para consulta e colaboração.
+Código próprio sob a **[licença MIT](LICENSE)** — Copyright (c) 2026 GPlanSiS.
 
 Componentes de terceiros incluídos: fontes **IBM Plex Sans / Mono** sob a [SIL Open Font License 1.1](app/fonts/LICENSE-OFL.txt). Dependências Python: FastAPI (MIT), uvicorn (BSD-3-Clause), anthropic (MIT).
 
